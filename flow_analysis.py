@@ -13,6 +13,8 @@ from hbase.ttypes import Mutation, BatchMutation
 from pyspark import SparkContext
 from pyspark.sql import SQLContext
 from pyspark.ml.regression import GBTRegressor
+from pyspark.ml.evaluation import RegressionEvaluator
+from pyspark.mllib.linalg import Vectors
 
 # Parameters:
 window_size = 10
@@ -40,12 +42,30 @@ def get_raw_data():
         if len(rows) == 0:
             break
         for row in rows:
-            data[row.row[-2:]].append(row.columns['exp:total'].value)
+            data[row.row[-2:]].append(float(row.columns['exp:total'].value))
     transport.close()
+
     return data
 
 def prepare_data(raw):
-    train, test = [], []
+
+    def gen_label(r):
+        p = {}
+        for key in r.iterkeys():
+            p[key] = [(l, Vectors.dense(r[key][s:s+window_size])) \
+                    for s, l in \
+                    zip(range(len(r[key])-window_size), r[key][window_size:])]
+        return p
+
+    train_len = int(len(raw['00']) / 3 * 2)
+    train = {}
+    test = {}
+    for key in raw.iterkeys():
+        train[key] = raw[key][:train_len]
+        test[key] = raw[key][train_len:]
+    train = gen_label(train)
+    test = gen_label(test)
+
     return train, test
 
 def main():
@@ -53,9 +73,17 @@ def main():
     sqlContext = SQLContext(sc)
 
     train, test = prepare_data(get_raw_data())
-    train_df = sqlContext.createDataFrame(train, ['label', 'features'])
-    gbt = GBTRegressor(maxIter=5, maxDepth=2)
-    model = gbt.fit(train_df)
+    for key in train.iterkeys():
+        # train
+        train_df = sqlContext.createDataFrame(train[key], ['label', 'features'])
+        gbt = GBTRegressor(maxIter=5, maxDepth=2)
+        model = gbt.fit(train_df)
+        # test
+        test_df = sqlContext.createDataFrame(test[key], ['label', 'features'])
+        evaluator = RegressionEvaluator()
+        print("%s: %f" % (key, evaluator.evaluate(model.transform(test_df))))
+
+    sc.stop()
 
 if __name__ == '__main__':
     main()
