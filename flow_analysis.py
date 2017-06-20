@@ -12,7 +12,7 @@ from hbase.ttypes import Mutation, BatchMutation
 
 from pyspark import SparkContext
 from pyspark.sql import SQLContext
-from pyspark.ml.regression import GBTRegressor
+from pyspark.ml.regression import LinearRegression
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.mllib.linalg import Vectors
 
@@ -74,14 +74,16 @@ def main():
 
     train, test = prepare_data(get_raw_data())
     for key in train.iterkeys():
+        # TODO: Use cross validation to tune parameters
         # train
         train_df = sqlContext.createDataFrame(train[key], ['label', 'features'])
-        gbt = GBTRegressor(maxIter=5, maxDepth=2)
-        model = gbt.fit(train_df)
+        lr = LinearRegression(maxIter=30, regParam=0.3, elasticNetParam=0.8)
+        model = lr.fit(train_df)
         # test
         test_df = sqlContext.createDataFrame(test[key], ['label', 'features'])
         evaluator = RegressionEvaluator()
         print("%s: %f" % (key, evaluator.evaluate(model.transform(test_df))))
+        model.save("FlowAnalysis/model_%s" % key)
 
     sc.stop()
 

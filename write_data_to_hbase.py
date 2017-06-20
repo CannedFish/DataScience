@@ -84,7 +84,7 @@ def main():
     options, args = parser.parse_args()
 
     if len(args) != 1:
-        parser.error("Incorrent number of arguments")
+        parser.error("Incorrect number of arguments")
 
     if args[0] == 'ExpressStatistics':
         input_to_es(args[0], options)
